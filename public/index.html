@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Морской бой</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚢</text></svg>">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="ocean-bg" aria-hidden="true">
+  <div class="menu-photo-bg"></div>
+  <svg class="waves waves-back" viewBox="0 0 1200 200" preserveAspectRatio="none"><path d="M0,80 C150,140 350,20 600,80 C850,140 1050,20 1200,80 L1200,200 L0,200 Z"></path></svg>
+  <svg class="waves waves-mid" viewBox="0 0 1200 200" preserveAspectRatio="none"><path d="M0,100 C200,40 400,160 600,100 C800,40 1000,160 1200,100 L1200,200 L0,200 Z"></path></svg>
+  <svg class="waves waves-front" viewBox="0 0 1200 200" preserveAspectRatio="none"><path d="M0,120 C180,180 420,60 600,120 C780,180 1020,60 1200,120 L1200,200 L0,200 Z"></path></svg>
+  <div class="stars"></div>
+</div>
+
+<canvas id="fx-canvas"></canvas>
+
+<button id="sound-toggle" class="icon-btn" title="Звук">🔊</button>
+
+<main id="app">
+
+  <!-- ГЛАВНОЕ МЕНЮ -->
+  <section class="screen active" id="screen-menu">
+    <div class="menu-card">
+      <h1 class="title">
+        <span class="title-line1">МОРСКОЙ</span>
+        <span class="title-line2">БОЙ</span>
+      </h1>
+      <p class="subtitle">Потопи вражеский флот раньше, чем потопят твой</p>
+
+      <div class="menu-buttons">
+        <button class="btn btn-primary" data-nav="mode-computer">
+          <span class="btn-icon">🤖</span> Игра с компьютером
+        </button>
+        <button class="btn btn-primary" data-nav="mode-hotseat">
+          <span class="btn-icon">👥</span> Два игрока (один экран)
+        </button>
+        <button class="btn btn-primary" data-nav="mode-online">
+          <span class="btn-icon">🌐</span> Игра онлайн
+        </button>
+        <button class="btn btn-ghost" data-nav="rules">
+          <span class="btn-icon">📖</span> Правила
+        </button>
+      </div>
+      <div class="menu-footer">Морской бой · Свежий ветер, ровный киль</div>
+    </div>
+  </section>
+
+  <!-- ПРАВИЛА -->
+  <section class="screen" id="screen-rules">
+    <div class="panel">
+      <h2>Правила</h2>
+      <ul class="rules-list">
+        <li>Флот каждого игрока: 1 линкор (4 клетки), 2 крейсера (3 клетки), 3 эсминца (2 клетки), 4 катера (1 клетка).</li>
+        <li>Корабли нельзя ставить впритык друг к другу — даже по диагонали.</li>
+        <li>Игроки по очереди стреляют по клеткам вражеского поля.</li>
+        <li>Попадание — стреляющий ходит ещё раз. Промах — ход переходит сопернику.</li>
+        <li>Когда все клетки корабля поражены — он потоплен, а клетки вокруг него отмечаются как «мимо».</li>
+        <li>Побеждает тот, кто первым потопит весь вражеский флот.</li>
+      </ul>
+      <button class="btn btn-primary" data-nav="menu">Назад в меню</button>
+    </div>
+  </section>
+
+  <!-- НАСТРОЙКА ИГРЫ С КОМПЬЮТЕРОМ -->
+  <section class="screen" id="screen-mode-computer">
+    <div class="panel">
+      <h2>Игра с компьютером</h2>
+      <p class="hint">Выберите сложность противника</p>
+      <div class="difficulty-row">
+        <button class="btn btn-diff" data-diff="easy">Новичок</button>
+        <button class="btn btn-diff active" data-diff="normal">Капитан</button>
+        <button class="btn btn-diff" data-diff="hard">Адмирал</button>
+      </div>
+      <div class="menu-buttons">
+        <button class="btn btn-primary" id="start-vs-computer">Расставить флот</button>
+        <button class="btn btn-ghost" data-nav="menu">Назад</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ХОТСИТ: ЭКРАН СТАРТА -->
+  <section class="screen" id="screen-mode-hotseat">
+    <div class="panel">
+      <h2>Два игрока — один экран</h2>
+      <p class="hint">Каждый игрок расставит корабли по очереди, экран будет скрываться между ходами.</p>
+      <div class="menu-buttons">
+        <button class="btn btn-primary" id="start-hotseat">Начать</button>
+        <button class="btn btn-ghost" data-nav="menu">Назад</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ОНЛАЙН: ЛОББИ -->
+  <section class="screen" id="screen-mode-online">
+    <div class="panel">
+      <h2>Игра онлайн</h2>
+      <div class="online-tabs">
+        <button class="btn btn-primary" id="online-create">Создать комнату</button>
+        <div class="online-join">
+          <input id="online-code-input" maxlength="4" placeholder="КОД" autocomplete="off">
+          <button class="btn btn-primary" id="online-join">Войти</button>
+        </div>
+      </div>
+      <div id="online-status" class="online-status"></div>
+      <button class="btn btn-ghost" data-nav="menu">Назад</button>
+    </div>
+  </section>
+
+  <!-- РАССТАНОВКА КОРАБЛЕЙ -->
+  <section class="screen" id="screen-placement">
+    <div class="placement-layout">
+      <div class="board-wrap">
+        <h3 id="placement-title">Расставьте свой флот</h3>
+        <div id="placement-board" class="board"></div>
+      </div>
+      <div class="placement-side">
+        <div class="fleet-dock" id="fleet-dock"></div>
+        <div class="placement-controls">
+          <button class="btn btn-secondary" id="btn-rotate">↻ Повернуть (R)</button>
+          <button class="btn btn-secondary" id="btn-random">🎲 Случайно</button>
+          <button class="btn btn-secondary" id="btn-clear">✖ Очистить</button>
+          <button class="btn btn-primary" id="btn-ready" disabled>⚓ Готово</button>
+        </div>
+        <p class="hint" id="placement-hint">Кликните по клетке, чтобы поставить корабль. R — повернуть.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ЭКРАН "ПЕРЕДАЙТЕ УСТРОЙСТВО" -->
+  <section class="screen" id="screen-pass">
+    <div class="panel pass-panel">
+      <div class="pass-icon">🔒</div>
+      <h2 id="pass-title">Передайте устройство</h2>
+      <p class="hint" id="pass-subtitle">Следующий игрок не должен видеть текущее поле</p>
+      <button class="btn btn-primary" id="pass-continue">Я готов — продолжить</button>
+    </div>
+  </section>
+
+  <!-- ЭКРАН ОЖИДАНИЯ (онлайн) -->
+  <section class="screen" id="screen-waiting">
+    <div class="panel">
+      <div class="spinner"></div>
+      <h2 id="waiting-title">Ожидание соперника…</h2>
+      <p class="hint" id="waiting-subtitle"></p>
+    </div>
+  </section>
+
+  <!-- БОЙ -->
+  <section class="screen" id="screen-battle">
+    <div class="battle-layout">
+      <div class="battle-header">
+        <div class="turn-indicator" id="turn-indicator">Ваш ход</div>
+        <div class="fleet-status" id="fleet-status"></div>
+      </div>
+      <div class="boards-row">
+        <div class="board-wrap">
+          <h3>Ваше поле</h3>
+          <div id="board-own" class="board board-own"></div>
+        </div>
+        <div class="board-wrap">
+          <h3>Поле противника</h3>
+          <div id="board-enemy" class="board board-enemy"></div>
+        </div>
+      </div>
+      <div class="log" id="battle-log"></div>
+    </div>
+  </section>
+
+  <!-- КОНЕЦ ИГРЫ -->
+  <section class="screen" id="screen-gameover">
+    <div class="panel gameover-panel">
+      <h1 id="gameover-title" class="gameover-title">Победа!</h1>
+      <p id="gameover-subtitle" class="hint"></p>
+      <div class="menu-buttons">
+        <button class="btn btn-primary" data-nav="menu">В главное меню</button>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
