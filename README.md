@@ -31,6 +31,8 @@ npm start
 
 В репозитории уже есть workflow `.github/workflows/deploy-pages.yml`, который при каждом пуше публикует папку `public/` на GitHub Pages. Нужно один раз включить Pages в настройках:
 
+> На бесплатном тарифе GitHub Pages работает только для **публичных** репозиториев — если репозиторий приватный, сначала сделайте его публичным (Settings → Danger Zone → Change repository visibility).
+
 1. Зайдите в репозиторий → **Settings → Pages**.
 2. В поле **Source** выберите **GitHub Actions** (не "Deploy from a branch").
 3. Сделайте любой пуш в ветку — через минуту-полторы сайт появится по адресу вида `https://<ваш-аккаунт>.github.io/<репозиторий>/`.
