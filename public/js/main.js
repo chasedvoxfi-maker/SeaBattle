@@ -433,38 +433,74 @@ async function startHotseat() {
   refreshView();
 }
 
-// ==================== РЕЖИМ: ОНЛАЙН ====================
+// ==================== РЕЖИМ: ОНЛАЙН (P2P, без сервера) ====================
+//
+// Сервера-судьи больше нет: каждый игрок считает попадания по своей доске
+// (resolveShot) и пересылает результат сопернику напрямую через WebRTC.
 
 let onlineRoomCode = null;
 let onlineOwnBoard = null;
 let onlineEnemySunk = 0;
 let onlineMyTurn = false;
+let onlinePeerConnected = false;
+let onlineAmIReady = false;
+let onlineISentReady = false;
+let onlineOpponentReady = false;
+let onlineBattleStarted = false;
+
+function resetOnlineState() {
+  onlineRoomCode = null;
+  onlineOwnBoard = null;
+  onlineEnemySunk = 0;
+  onlineMyTurn = false;
+  onlinePeerConnected = false;
+  onlineAmIReady = false;
+  onlineISentReady = false;
+  onlineOpponentReady = false;
+  onlineBattleStarted = false;
+}
+
+function sendReadyIfPossible() {
+  if (onlineAmIReady && onlinePeerConnected && !onlineISentReady) {
+    network.sendReady();
+    onlineISentReady = true;
+  }
+}
+
+function tryStartOnlineBattle() {
+  if (onlineAmIReady && onlineOpponentReady && !onlineBattleStarted) {
+    onlineBattleStarted = true;
+    startOnlineBattle();
+  }
+}
 
 async function startOnlinePlacement() {
   const hint = `Комната: ${onlineRoomCode}. Кликните по клетке, чтобы поставить корабль. R — повернуть.`;
   const placed = await placementPhase('Расставьте свой флот', hint);
   onlineOwnBoard = { grid: placed.grid, ships: placed.ships };
   onlineEnemySunk = 0;
-  network.place(placed.placedShips.map(s => ({ x: s.x, y: s.y, size: s.size, horizontal: s.horizontal })));
+  onlineAmIReady = true;
+  sendReadyIfPossible();
   document.getElementById('waiting-title').textContent = 'Ожидание соперника…';
-  document.getElementById('waiting-subtitle').textContent = `Код комнаты: ${onlineRoomCode}. Ждём, пока соперник расставит флот.`;
+  document.getElementById('waiting-subtitle').textContent = `Код комнаты: ${onlineRoomCode}. Ждём, пока соперник подключится и расставит флот.`;
   showScreen('screen-waiting');
+  tryStartOnlineBattle();
 }
 
 function updateOnlineFS() {
   renderFleetStatusBar('Вы', aliveCount(onlineOwnBoard.ships), FLEET.length, 'Соперник', FLEET.length - onlineEnemySunk, FLEET.length);
 }
 
-function startOnlineBattle(msg) {
+function startOnlineBattle() {
   currentMode = 'online';
   gameOverFlag = false;
   clearLog();
-  onlineMyTurn = msg.startingPlayer === network.playerIndex;
+  onlineMyTurn = network.amIFirst();
 
   function onEnemyClick(x, y, cellEl) {
     if (!onlineMyTurn || gameOverFlag) return;
     if (shotAlreadyMade(cellEl)) return;
-    network.shoot(x, y);
+    network.sendShot(x, y);
     onlineMyTurn = false;
     updateTurnIndicator('Ход соперника…');
   }
@@ -477,75 +513,78 @@ function startOnlineBattle(msg) {
   updateOnlineFS();
 }
 
-network.on('created', (msg) => {
-  onlineRoomCode = msg.code;
-  const statusEl = document.getElementById('online-status');
-  if (statusEl) statusEl.textContent = `Комната создана! Код: ${msg.code} — отправьте другу`;
-  startOnlinePlacement();
-});
-
-network.on('joined', (msg) => {
-  onlineRoomCode = msg.code;
-  const statusEl = document.getElementById('online-status');
-  if (statusEl) statusEl.textContent = 'Подключено к комнате!';
-  startOnlinePlacement();
-});
+function notifyOpponentLeft() {
+  if (currentMode === 'online' && battleRefs && !gameOverFlag) {
+    addLog('Соперник отключился.', 'log-miss');
+    setTimeout(() => {
+      if (!gameOverFlag) { currentMode = null; showScreen('screen-menu'); }
+    }, 2500);
+  } else if (!gameOverFlag) {
+    const statusEl = document.getElementById('online-status');
+    if (statusEl) statusEl.textContent = 'Соперник отключился.';
+    setTimeout(() => showScreen('screen-menu'), 2500);
+  }
+}
 
 network.on('opponent_joined', () => {
+  onlinePeerConnected = true;
   const statusEl = document.getElementById('online-status');
   if (statusEl) statusEl.textContent = 'Соперник подключился!';
+  addLog('Соперник подключился.', 'log-sunk');
+  sendReadyIfPossible();
 });
 
 network.on('opponent_ready', () => {
+  onlineOpponentReady = true;
   addLog('Соперник расставил флот и готов к бою.', 'log-sunk');
+  tryStartOnlineBattle();
 });
 
-network.on('both_ready', (msg) => {
-  startOnlineBattle(msg);
+// Соперник выстрелил по моей доске — считаю результат сам и отправляю обратно.
+network.on('shot_incoming', ({ x, y }) => {
+  if (currentMode !== 'online' || !battleRefs || gameOverFlag) return;
+  const outcome = resolveShot(onlineOwnBoard.grid, onlineOwnBoard.ships, x, y);
+  if (outcome.result === 'repeat') return;
+  applyShotVisual(battleRefs.ownCells, x, y, outcome.result, outcome.shipCells, outcome.autoMiss, 'Соперник');
+  network.sendShotResult(x, y, outcome.result, outcome.shipCells, outcome.autoMiss);
+
+  if (outcome.result === 'win') {
+    gameOverFlag = true;
+    showGameOver(false, 'Ваш флот потоплен соперником...');
+    return;
+  }
+  if (outcome.result === 'miss') {
+    onlineMyTurn = true;
+    updateTurnIndicator('Ваш ход');
+  }
 });
 
-network.on('shot_result', (msg) => {
-  if (currentMode !== 'online' || !battleRefs) return;
-  const { by, x, y, result, shipCells, autoMiss } = msg;
-  const iShot = by === network.playerIndex;
-  const cells = iShot ? battleRefs.enemyCells : battleRefs.ownCells;
-  applyShotVisual(cells, x, y, result, shipCells, autoMiss, iShot ? 'Вы' : 'Соперник');
-  if ((result === 'sunk' || result === 'win') && iShot) onlineEnemySunk++;
-  if (result === 'sunk' || result === 'win') updateOnlineFS();
-});
+// Результат моего выстрела по доске соперника.
+network.on('shot_result', ({ x, y, result, shipCells, autoMiss }) => {
+  if (currentMode !== 'online' || !battleRefs || gameOverFlag) return;
+  applyShotVisual(battleRefs.enemyCells, x, y, result, shipCells, autoMiss, 'Вы');
+  if (result === 'sunk' || result === 'win') {
+    onlineEnemySunk++;
+    updateOnlineFS();
+  }
 
-network.on('turn', (msg) => {
-  if (currentMode !== 'online') return;
-  onlineMyTurn = msg.playerIndex === network.playerIndex;
-  updateTurnIndicator(onlineMyTurn ? 'Ваш ход' : 'Ход соперника…');
-});
-
-network.on('game_over', (msg) => {
-  if (currentMode !== 'online') return;
-  gameOverFlag = true;
-  const won = msg.winner === network.playerIndex;
-  showGameOver(won, won ? 'Вы потопили весь флот соперника!' : 'Ваш флот потоплен соперником...');
+  if (result === 'win') {
+    gameOverFlag = true;
+    showGameOver(true, 'Вы потопили весь флот соперника!');
+    return;
+  }
+  if (result === 'miss') {
+    onlineMyTurn = false;
+    updateTurnIndicator('Ход соперника…');
+  } else {
+    onlineMyTurn = true;
+    updateTurnIndicator('Ваш ход');
+  }
 });
 
 network.on('opponent_left', () => {
-  if (currentMode === 'online' && !gameOverFlag) {
-    addLog('Соперник покинул игру.', 'log-miss');
-    const statusEl = document.getElementById('online-status');
-    if (statusEl) statusEl.textContent = 'Соперник отключился.';
-    setTimeout(() => { if (!gameOverFlag) showScreen('screen-menu'); }, 2500);
-  }
-});
-
-network.on('error', (msg) => {
-  const statusEl = document.getElementById('online-status');
-  if (statusEl) statusEl.textContent = 'Ошибка: ' + msg.message;
-  audio.error();
-});
-
-network.on('disconnected', () => {
-  if (currentMode === 'online' && !gameOverFlag) {
-    addLog('Соединение с сервером потеряно.', 'log-miss');
-  }
+  onlinePeerConnected = false;
+  notifyOpponentLeft();
 });
 
 // ==================== ГЛОБАЛЬНАЯ ИНИЦИАЛИЗАЦИЯ UI ====================
@@ -554,6 +593,11 @@ function initNav() {
   document.querySelectorAll('[data-nav]').forEach(btn => {
     btn.addEventListener('click', () => {
       audio.click();
+      if (btn.dataset.nav === 'menu' && currentMode === 'online') {
+        network.leave();
+        resetOnlineState();
+        currentMode = null;
+      }
       showScreen('screen-' + btn.dataset.nav);
     });
   });
@@ -592,30 +636,26 @@ function initHotseat() {
 }
 
 function initOnline() {
-  document.getElementById('online-create').addEventListener('click', async () => {
+  document.getElementById('online-create').addEventListener('click', () => {
     audio.click();
+    resetOnlineState();
+    const code = network.createRoom();
+    onlineRoomCode = code;
     const statusEl = document.getElementById('online-status');
-    statusEl.textContent = 'Подключение к серверу…';
-    try {
-      await network.connect();
-      network.createRoom('Игрок');
-    } catch (e) {
-      statusEl.textContent = 'Не удалось подключиться к серверу';
-    }
+    statusEl.textContent = `Комната создана! Код: ${code} — отправьте другу и ждите подключения…`;
+    startOnlinePlacement();
   });
 
-  async function doJoin() {
+  function doJoin() {
     audio.click();
     const code = document.getElementById('online-code-input').value.trim().toUpperCase();
-    if (!code) return;
+    if (!code || code.length !== 4) return;
+    resetOnlineState();
+    network.joinRoom(code);
+    onlineRoomCode = code;
     const statusEl = document.getElementById('online-status');
-    statusEl.textContent = 'Подключение к серверу…';
-    try {
-      await network.connect();
-      network.joinRoom(code, 'Игрок');
-    } catch (e) {
-      statusEl.textContent = 'Не удалось подключиться к серверу';
-    }
+    statusEl.textContent = 'Подключение к комнате…';
+    startOnlinePlacement();
   }
   document.getElementById('online-join').addEventListener('click', doJoin);
   document.getElementById('online-code-input').addEventListener('keydown', (e) => {
